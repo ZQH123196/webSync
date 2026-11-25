@@ -13,7 +13,7 @@ dir = "/我的项目/db"
 # 本仓库内用相对路径，换机器不用改。
 db_dir = "../../server/db/database"
 # 下载目录。下载的文件落在这里，本地窗口一打开也在这里。
-download_dir = "~/download"
+download_dir = "~/autodl-tmp/download"
 
 [tools]
 # 留空表示按名字在 PATH 与 ~/.local/bin 里自动探测。
