@@ -1,0 +1,32 @@
+[project]
+name = "websync"
+version = "0.1.0"
+description = "夸克网盘中转：在多台机器之间同步 trans-app 的 SQLite 库快照。"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "textual==8.2.8",
+    "typer==0.27.3",
+    "rich==15.0.0",
+    "psutil==7.2.2",
+]
+
+# ===================== 版本纪律 =====================
+# 直接依赖一律写死 ==，整棵依赖树由 uv.lock 钉死。
+# 装环境只允许 `uv sync --frozen`
+# 禁止裸跑 `uv pip install <包名>`：那会绕过锁、静默改版本。
+# =================================================
+
+[dependency-groups]
+dev = ["pytest==9.2.0"]
+
+[project.scripts]
+websync = "websync.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.10.4,<0.11.0"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
+python_files = ["test_*.py"]

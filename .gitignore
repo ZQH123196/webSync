@@ -1,0 +1,22 @@
+# 本项目的运行期产物。
+# 规则只覆盖本项目，不涉及任何其他目录。
+
+# 外部二进制，由 install-tools.sh 安装
+bin/
+
+# goquark 登录态。含会话 cookie，等同密码。
+# 放项目里是为了整包复制即用，但不能进 git。
+config/goquark.json
+
+# Python
+__pycache__/
+.venv/
+.pytest_cache/
+*.pyc
+
+# 传输产物与校验旁文件
+*.db
+*.db-wal
+*.db-shm
+*.db.part
+*.sha256

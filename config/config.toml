@@ -1,0 +1,26 @@
+# WebSync 配置。跟着项目走，复制整个目录即可使用。
+# 位置：<项目>/config/config.toml（可用环境变量 WEBSYNC_CONFIG 覆盖）
+#
+# 相对路径一律相对项目根目录解析，不随调用时的工作目录变化。
+
+[remote]
+# 夸克网盘上的中转目录。
+dir = "/我的项目/db"
+
+[local]
+# 上传目录。这个目录里的文件都会列在界面上，想传哪个选哪个，不用登记。
+# 只有推库的机子需要，拉库的机子留空。
+# 本仓库内用相对路径，换机器不用改。
+db_dir = "../../server/db/database"
+# 下载目录。下载的文件落在这里，本地窗口一打开也在这里。
+download_dir = "~/download"
+
+[tools]
+# 留空表示按名字在 PATH 与 ~/.local/bin 里自动探测。
+kuake_bin = ""
+goquark_bin = ""
+sqlite3_bin = "sqlite3"
+# goquark 的登录态。kuake 缺凭证时复用这里面同一对 cookie。
+# 放在项目里，整包复制就能用。这个文件含会话 cookie，等同密码，
+# 已列入 .gitignore，不入 git。
+goquark_config = "config/goquark.json"
