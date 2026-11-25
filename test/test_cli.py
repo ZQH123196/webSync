@@ -85,3 +85,12 @@ def test_init_refuses_to_overwrite(tmp_path: Path) -> None:
 
     assert first.exit_code == 0
     assert second.exit_code == 2
+
+
+def test_steps_prints_flow_with_configured_paths(config, sandbox: Sandbox) -> None:
+    result = RUNNER.invoke(app, ["-c", str(config.path), "steps"])
+
+    assert result.exit_code == 0
+    assert "推库（本机 → 网盘）" in result.output
+    assert "拉库（网盘 → 本机）" in result.output
+    assert str(sandbox.db_dir) in result.output

@@ -354,3 +354,39 @@ def test_pull_tree_rebuilds_directories(config, sandbox: Sandbox) -> None:
     assert (destination / "旧备份" / "a.txt").read_text(encoding="utf-8") == "A"
     assert (destination / "旧备份" / "子目录" / "b.txt").read_text(encoding="utf-8") == "B"
     assert len(outcomes) == 2
+
+
+def test_push_logs_that_sqlite_files_are_snapshotted(config, sandbox: Sandbox) -> None:
+    """日志里要写明「导出快照」，用户才知道没有另跑导出命令。"""
+    steps: list[str] = []
+
+    ops.push(
+        config,
+        _toolset(config),
+        config.db_dir / "system.db",
+        prefix=PREFIX,
+        on_step=steps.append,
+        verify_attempts=1,
+        verify_delay=0,
+    )
+
+    assert any("SQLite" in line and "快照" in line for line in steps)
+    assert any("完整性检查" in line for line in steps)
+
+
+def test_push_logs_plain_upload_for_other_files(config, sandbox: Sandbox) -> None:
+    note = sandbox.db_dir / "报告 2026.txt"
+    note.write_text("不是数据库", encoding="utf-8")
+    steps: list[str] = []
+
+    ops.push(
+        config,
+        _toolset(config),
+        note,
+        prefix=PREFIX,
+        on_step=steps.append,
+        verify_attempts=1,
+        verify_delay=0,
+    )
+
+    assert any("不做快照" in line for line in steps)

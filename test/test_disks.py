@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from types import SimpleNamespace
 
 import psutil
@@ -92,3 +93,42 @@ def test_render_marks_low_free_space() -> None:
 
 def test_render_handles_empty_list() -> None:
     assert disks.render([]) == [("dim", "没有可用的磁盘信息")]
+
+
+def test_width_counts_cjk_as_two_cells() -> None:
+    assert disks._width("挂载点") == 6
+    assert disks._width("/mnt/c") == 6
+    assert disks._width(disks._pad("可用", 12, ">")) == 12
+    assert disks._width(disks._pad("可用率", 6)) == 6
+
+
+def _column_ends(line: str) -> list[int]:
+    """每一列结束处的显示列号。按字数算会看不出 CJK 表头的偏移。"""
+    position = 0
+    ends: list[int] = []
+    for cell in re.split(r"  +", line.strip()):
+        start = line.index(cell, position)
+        position = start + len(cell)
+        ends.append(disks._width(line[:position]))
+    return ends
+
+
+def test_render_columns_line_up_with_cjk_header() -> None:
+    """表头是 CJK，数值是半角。两行必须落在同一组列上。"""
+    rows = [
+        disks.DiskUsage("/", "/dev/sda1", "ext4", 1006 * 2**30, 861 * 2**30),
+        disks.DiskUsage("/mnt/c", "C:\\", "9p", 953 * 2**30, 137 * 2**30),
+    ]
+
+    lines = disks.render(rows)
+    expected = _column_ends(lines[0][1])
+
+    assert [cell for cell in re.split(r"  +", lines[0][1].strip())] == [
+        "挂载点",
+        "可用",
+        "总量",
+        "可用率",
+    ]
+    for _style, text in lines[1:]:
+        # 第一列左对齐，值长短本就不同；数值列必须与表头收在同一列。
+        assert _column_ends(text)[1:] == expected[1:]

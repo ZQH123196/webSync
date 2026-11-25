@@ -504,9 +504,15 @@ def push(
         if on_step:
             on_step(f"准备 {source.name}")
         if export.is_sqlite(source):
+            if on_step:
+                on_step(f"{source.name} 是 SQLite 库：导出快照后上传，源库可继续读写")
             sqlite3 = toolset.require(SQLITE3)
             export.export_snapshot(sqlite3.path, source, staged, cancel=cancel)
+            if on_step:
+                on_step(f"快照通过完整性检查：{human_size(staged.stat().st_size)}")
         else:
+            if on_step:
+                on_step(f"{source.name} 不是 SQLite：原样上传，不做快照")
             shutil.copyfile(source, staged)
         return _upload_staged(
             config,
@@ -576,8 +582,12 @@ def push_tree(
             if on_step:
                 on_step(f"准备 {relative}")
             if export.is_sqlite(path):
+                if on_step:
+                    on_step(f"{relative} 是 SQLite 库：导出快照后上传，源库可继续读写")
                 sqlite3 = toolset.require(SQLITE3)
                 export.export_snapshot(sqlite3.path, path, staged, cancel=cancel)
+                if on_step:
+                    on_step(f"快照通过完整性检查：{human_size(staged.stat().st_size)}")
             else:
                 shutil.copyfile(path, staged)
             outcomes.append(
@@ -766,6 +776,18 @@ def _writable(path: Path) -> tuple[bool, str]:
     except OSError as exc:
         return False, f"{path}：{exc}"
     return True, str(path)
+
+
+def staging_free() -> int:
+    """暂存盘的可用字节数。
+
+    暂存目录可能还没建，那就按最近的已存在上级目录算。不在这里建目录：
+    用户可能只是打开确认框看一眼就取消。
+    """
+    path = staging_dir()
+    while not path.exists() and path.parent != path:
+        path = path.parent
+    return shutil.disk_usage(path).free
 
 
 def doctor(config: Config, toolset: Toolset | None = None) -> list[Check]:

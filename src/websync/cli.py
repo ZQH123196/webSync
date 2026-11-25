@@ -17,6 +17,7 @@ from rich.table import Table
 
 from . import config as config_module
 from . import ops
+from .guide import build_help_text
 from .errors import EXIT_OK, WebSyncError
 from .naming import human_size
 
@@ -27,7 +28,7 @@ app = typer.Typer(
     add_completion=False,
     invoke_without_command=True,
     no_args_is_help=False,
-    help="夸克网盘中转：在多台机器之间传文件，SQLite 库会先做一致快照。",
+    help="夸克网盘中转：在多台机器之间传文件，SQLite 库会先做一致快照。界面里按 ? 看说明。",
 )
 
 
@@ -130,6 +131,18 @@ def doctor(
         err_console.print(f"\n[red]{len(failed)} 项不通过（判定范围 {for_scope}）")
         raise typer.Exit(1)
     console.print(f"\n[green]全部通过（判定范围 {for_scope}）")
+
+
+@app.command()
+def steps(ctx: typer.Context) -> None:
+    """打印推库与拉库的操作步骤。路径取当前配置。"""
+    loaded = _load_or_die(ctx.obj["config"] if ctx.obj else None)
+    console.print(
+        build_help_text(loaded),
+        markup=False,
+        highlight=False,
+        soft_wrap=True,
+    )
 
 
 @app.command()

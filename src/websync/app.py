@@ -32,10 +32,11 @@ from textual.widgets import (
     Static,
 )
 
-from . import disks, history, ops, remote
+from . import disks, export, history, ops, remote
 from .config import Config, is_visible
 from .errors import KIND_TRANSFER, Cancelled, WebSyncError
-from .naming import BEIJING, human_size, make_prefix
+from .guide import build_help_text
+from .naming import BEIJING, human_size, make_prefix, snapshot_name
 from .transfer import CancelToken, Progress
 
 LOG_LINES = 8
@@ -54,15 +55,22 @@ Screen { layout: vertical; }
 #transfer-title { padding: 0 1; text-style: bold; }
 #transfer-log { padding: 0 1; height: auto; }
 #inbox-bar { height: 1; padding: 0 1; color: $text-muted; }
+#hint-bar { height: 1; padding: 0 1; color: $accent; }
 TaskRow { height: 3; padding: 0 1; }
 TaskRow Label { height: 1; }
 TaskRow ProgressBar { height: 1; }
-#dialog-wide { width: 96; height: auto; max-height: 24; border: thick $primary; background: $surface; padding: 1 2; }
+#dialog-wide { width: 96; max-width: 100%; height: auto; max-height: 24; border: thick $primary; background: $surface; padding: 1 2; }
 #history-hint { padding-top: 1; color: $text-muted; }
 #dialog { width: 72; height: auto; border: thick $primary; background: $surface; padding: 1 2; }
 #dialog-title { text-style: bold; padding-bottom: 1; }
 #dialog-actions { height: auto; align-horizontal: right; padding-top: 1; }
 #dialog-actions Button { margin-left: 2; }
+#confirm-body { padding-bottom: 1; }
+#confirm-file { text-style: bold; }
+#confirm-note { color: $text-muted; padding-top: 1; }
+#help-dialog { width: 96; max-width: 100%; height: 90%; max-height: 44; border: thick $primary; background: $surface; padding: 1 2; }
+#help-scroll { height: 1fr; }
+#help-body { height: auto; }
 """
 
 
@@ -176,6 +184,104 @@ class HistoryScreen(ModalScreen[HistoryChoice | None]):
         self.dismiss(self._rows[index][0])
 
 
+class HelpScreen(ModalScreen[None]):
+    """按 ? 打开的说明。操作步骤在前，机制解释在后。"""
+
+    BINDINGS = [
+        Binding("escape", "close", "关闭"),
+        Binding("q", "close", "关闭"),
+        Binding("question_mark", "close", "关闭"),
+    ]
+
+    def __init__(self, config: Config) -> None:
+        super().__init__()
+        self._config = config
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="help-dialog"):
+            yield Label("WebSync 说明（Esc 关闭，方向键滚动）", id="dialog-title")
+            with VerticalScroll(id="help-scroll"):
+                yield Static(escape(build_help_text(self._config)), id="help-body")
+            yield Label("按 h 看历史，按 ? 回到这里。", id="history-hint")
+
+    def on_mount(self) -> None:
+        self.query_one("#help-scroll", VerticalScroll).focus()
+
+    def action_close(self) -> None:
+        self.dismiss(None)
+
+
+class UploadConfirmScreen(ModalScreen[bool]):
+    """SQLite 文件上传前的确认。
+
+    上传一个库要几分钟，用户需要先知道会导出快照、远端叫什么名字。
+    普通文件不经过这里，保持一次按键就传。
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "取消"),
+        Binding("q", "cancel", "取消"),
+        Binding("n", "cancel", "取消"),
+        Binding("y", "confirm", "导出并上传"),
+    ]
+
+    def __init__(
+        self,
+        source: Path,
+        remote_dir: str,
+        free_bytes: int | None,
+        preview_name: str,
+    ) -> None:
+        super().__init__()
+        self._source = source
+        self._remote_dir = remote_dir
+        self._free_bytes = free_bytes
+        self._preview_name = preview_name
+
+    def _free_note(self, size: int) -> str:
+        if self._free_bytes is None:
+            return f"暂存需 {human_size(size)} 余量，余量未取到。不足时会直接报错。"
+        if self._free_bytes < size:
+            return (
+                f"暂存需 {human_size(size)}，当前可用 {human_size(self._free_bytes)}："
+                "余量不足，导出会失败。"
+            )
+        return f"暂存需 {human_size(size)} 余量，当前可用 {human_size(self._free_bytes)}。"
+
+    def compose(self) -> ComposeResult:
+        size = self._source.stat().st_size
+        lines = [
+            "1. 用 sqlite3 .backup 导出一致快照。源库照常读写，trans-app 不用停。",
+            "2. 快照通过 PRAGMA integrity_check 才上传，坏库不传。",
+            f"3. 远端名形如 {self._preview_name}，并附 .sha256 校验文件。",
+            "4. 上传后核对远端字节数。远端有同名文件直接拒绝，不覆盖。",
+            self._free_note(size),
+        ]
+        with Vertical(id="dialog-wide"):
+            yield Label("上传前确认", id="dialog-title")
+            yield Label(
+                f"{self._source.name}（{human_size(size)}）是 SQLite 库。",
+                id="confirm-file",
+            )
+            yield Static(escape("\n".join(lines)), id="confirm-body")
+            yield Label(f"目标远端目录：{self._remote_dir}", id="confirm-note")
+            with Horizontal(id="dialog-actions"):
+                yield Button("导出并上传", variant="primary", id="confirm")
+                yield Button("取消", variant="default", id="cancel")
+
+    def on_mount(self) -> None:
+        self.query_one("#confirm", Button).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(event.button.id == "confirm")
+
+    def action_confirm(self) -> None:
+        self.dismiss(True)
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+
 class WebSyncApp(App[None]):
     TITLE = "WebSync"
     CSS = CSS
@@ -190,6 +296,7 @@ class WebSyncApp(App[None]):
         Binding("g", "goto", "跳转"),
         Binding("h", "history", "历史"),
         Binding("r", "refresh", "刷新"),
+        Binding("question_mark", "help", "说明"),
         Binding("escape", "cancel", "中断"),
         Binding("q", "quit", "退出"),
     ]
@@ -218,6 +325,7 @@ class WebSyncApp(App[None]):
             with Vertical(id="local-panel"):
                 yield Label("", id="local-title", classes="panel-title")
                 yield DataTable(id="local-table", cursor_type="row")
+        yield Static("", id="hint-bar")
         yield Static("", id="inbox-bar")
         with VerticalScroll(id="transfer-panel"):
             yield Label("传输", id="transfer-title")
@@ -246,10 +354,39 @@ class WebSyncApp(App[None]):
     def _render_titles(self) -> None:
         self.query_one("#remote-title", Label).update(escape(f"远端 1 · {self.remote_path}"))
         self.query_one("#local-title", Label).update(escape(f"本地 2 · {self.local_path}"))
+        self._update_inbox()
+
+    def _update_inbox(self, pane: str | None = None) -> None:
+        """底栏回答两件事：库在哪个目录，选中的东西按键会发生什么。
+
+        两行分开写：路径可能很长，混在一行会把提示挤掉。
+        """
         upload = self.config.db_dir or "未配置"
-        self.query_one("#inbox-bar", Static).update(
-            escape(f"下载到 {self.local_path}    上传目录: {upload}")
+        paths = f"上传目录: {upload}    下载到 {self.local_path}"
+        self.query_one("#inbox-bar", Static).update(escape(paths))
+        self.query_one("#hint-bar", Static).update(
+            escape(self._selection_hint(pane or self.active))
         )
+
+    def _selection_hint(self, pane: str) -> str:
+        """按选中项说明这一键的后果。用户不用去翻文档。"""
+        if pane == "remote":
+            row = self.selected_remote()
+            if row is None:
+                return "d 下载选中项"
+            if row.name == "..":
+                return ".. 是上级目录：按 Enter"
+            return f"选中 {row.name}：按 d 下载到本地当前目录"
+        row = self.selected_local()
+        if row is None:
+            return "按 g 填上传目录，选中文件或目录后按 u"
+        if row.name == "..":
+            return ".. 是上级目录：按 Enter"
+        if row.is_dir:
+            return f"选中 {row.name}/：按 u 整个目录上传"
+        if export.is_sqlite(Path(str(row.path))):
+            return f"选中 {row.name}：按 u 导出快照再上传，trans-app 不用停"
+        return f"选中 {row.name}：按 u 原样上传，不做快照"
 
     def _set_active(self, which: str) -> None:
         self.active = which
@@ -257,6 +394,13 @@ class WebSyncApp(App[None]):
             self.query_one(panel).set_class(name == which, "active")
         table = "#remote-table" if which == "remote" else "#local-table"
         self.query_one(table, DataTable).focus()
+        self._update_inbox()
+
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        """光标一动就换底栏提示。只认当前窗口，后台刷新不抢提示。"""
+        pane = "remote" if event.data_table.id == "remote-table" else "local"
+        if event.data_table.id in ("remote-table", "local-table") and pane == self.active:
+            self._update_inbox(pane)
 
     # ---------------- 渲染 ----------------
 
@@ -290,12 +434,14 @@ class WebSyncApp(App[None]):
     def _apply_remote(self, rows: list[Row]) -> None:
         self.remote_rows = rows
         self._fill("#remote-table", rows)
+        self._update_inbox()
         if len(rows) <= 1:
             self._log(f"远端目录是空的：{self.remote_path}")
 
     def _apply_local(self, rows: list[Row]) -> None:
         self.local_rows = rows
         self._fill("#local-table", rows)
+        self._update_inbox()
 
     # ---------------- 读目录 ----------------
 
@@ -511,7 +657,7 @@ class WebSyncApp(App[None]):
                 self.notify(f"本地已经没有：{source}", severity="error")
                 return
             self._set_active("local")
-            self.run_upload(source, choice.remote_dir)
+            self._request_upload(source, choice.remote_dir)
         elif choice.kind == history.KIND_DOWNLOAD:
             self._set_active("remote")
             entry = remote.RemoteEntry(name=choice.name, size=0)
@@ -530,6 +676,9 @@ class WebSyncApp(App[None]):
             self.cancel_token.cancel()
         self.exit()
 
+    def action_help(self) -> None:
+        self.push_screen(HelpScreen(self.config))
+
     def action_upload(self) -> None:
         if self.busy:
             self.notify("已有任务在跑", severity="warning")
@@ -539,7 +688,31 @@ class WebSyncApp(App[None]):
             hint = f"先在本地窗口选文件。上传目录：{self.config.db_dir or '未配置'}"
             self.notify(hint, severity="warning")
             return
-        self.run_upload(Path(str(row.path)))
+        self._request_upload(Path(str(row.path)))
+
+    def _request_upload(self, source: Path, remote_dir: str | None = None) -> None:
+        """SQLite 文件先解释再传，其他文件一次按键就传。"""
+        if not source.is_dir() and export.is_sqlite(source):
+            self._confirm_snapshot_upload(source, remote_dir or self.remote_path)
+            return
+        self.run_upload(source, remote_dir)
+
+    def _confirm_snapshot_upload(self, source: Path, remote_dir: str) -> None:
+        """把「导出」这件事说清楚：谁来导、导到哪、远端叫什么名字。"""
+        try:
+            free_bytes: int | None = ops.staging_free()
+        except OSError:
+            free_bytes = None
+        screen = UploadConfirmScreen(
+            source=source,
+            remote_dir=remote_dir,
+            free_bytes=free_bytes,
+            preview_name=snapshot_name(make_prefix(), source.name),
+        )
+        self.push_screen(
+            screen,
+            lambda confirmed: self.run_upload(source, remote_dir) if confirmed else None,
+        )
 
     def action_download(self) -> None:
         if self.busy:

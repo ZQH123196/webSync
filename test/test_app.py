@@ -11,7 +11,7 @@ import asyncio
 from textual.widgets import DataTable, Static
 
 from websync import disks, remote
-from websync.app import WebSyncApp
+from websync.app import UploadConfirmScreen, WebSyncApp
 
 from .conftest import Sandbox
 
@@ -348,3 +348,134 @@ def test_upload_is_replayable_from_history(config, sandbox: Sandbox) -> None:
             return len(list(sandbox.remote.glob("*-z.txt")))
 
     assert asyncio.run(scenario()) >= 2
+
+
+def test_hint_bar_explains_snapshot_for_sqlite_selection(config, sandbox: Sandbox) -> None:
+    """选中库文件时，底栏要先说清 u 会导出快照，用户才敢按。"""
+
+    async def scenario() -> str:
+        app = WebSyncApp(config)
+        async with app.run_test(size=(160, 40)) as pilot:
+            await pilot.pause(0.4)
+            app._goto_local(sandbox.db_dir)
+            await pilot.pause(0.3)
+            await pilot.press("2")
+            app.query_one("#local-table", DataTable).move_cursor(
+                row=_row_index(app, "local", "novel.db")
+            )
+            await pilot.pause(0.2)
+            return str(app.query_one("#hint-bar", Static).content)
+
+    bar = asyncio.run(scenario())
+
+    assert "导出快照" in bar
+    assert "trans-app 不用停" in bar
+
+
+def test_hint_bar_says_plain_upload_for_other_files(config, sandbox: Sandbox) -> None:
+    extra = sandbox.db_dir / "z.txt"
+    extra.write_text("要传的内容", encoding="utf-8")
+
+    async def scenario() -> str:
+        app = WebSyncApp(config)
+        async with app.run_test(size=(160, 40)) as pilot:
+            await pilot.pause(0.4)
+            app._goto_local(sandbox.db_dir)
+            await pilot.pause(0.3)
+            await pilot.press("2")
+            app.query_one("#local-table", DataTable).move_cursor(
+                row=_row_index(app, "local", "z.txt")
+            )
+            await pilot.pause(0.2)
+            return str(app.query_one("#hint-bar", Static).content)
+
+    bar = asyncio.run(scenario())
+
+    assert "原样上传" in bar
+    assert "不做快照" in bar
+
+
+def test_sqlite_upload_asks_before_exporting(config, sandbox: Sandbox) -> None:
+    """按 u 先弹确认，讲清 sqlite3 .backup、完整性检查与远端文件名。"""
+
+    async def scenario() -> tuple[bool, str, list[str], bool]:
+        app = WebSyncApp(config)
+        async with app.run_test(size=(160, 40)) as pilot:
+            await pilot.pause(0.4)
+            app._goto_local(sandbox.db_dir)
+            await pilot.pause(0.3)
+            app.query_one("#local-table", DataTable).move_cursor(
+                row=_row_index(app, "local", "novel.db")
+            )
+            await pilot.press("u")
+            await pilot.pause(0.4)
+            opened = isinstance(app.screen, UploadConfirmScreen)
+            body = str(app.screen.query_one("#confirm-body", Static).content) if opened else ""
+            await pilot.press("escape")
+            await pilot.pause(0.4)
+            return opened, body, list(sandbox.remote.glob("*-novel.db")), app.busy
+
+    opened, body, uploaded, busy = asyncio.run(scenario())
+
+    assert opened
+    assert "sqlite3 .backup" in body
+    assert "integrity_check" in body
+    assert ".sha256" in body
+    assert uploaded == []
+    assert busy is False
+
+
+def test_sqlite_upload_runs_after_confirm(config, sandbox: Sandbox) -> None:
+    async def scenario() -> bool:
+        app = WebSyncApp(config)
+        async with app.run_test(size=(160, 40)) as pilot:
+            await pilot.pause(0.4)
+            app._goto_local(sandbox.db_dir)
+            await pilot.pause(0.3)
+            app.query_one("#local-table", DataTable).move_cursor(
+                row=_row_index(app, "local", "novel.db")
+            )
+            await pilot.press("u")
+            await pilot.pause(0.3)
+            await pilot.press("y")
+            for _ in range(200):
+                await pilot.pause(0.05)
+                if list(sandbox.remote.glob("*-novel.db")):
+                    return True
+        return False
+
+    assert asyncio.run(scenario())
+
+
+def test_help_key_explains_export(config, sandbox: Sandbox) -> None:
+    """「导出 db 没有命令」这件事要能在界面里查到。"""
+
+    async def scenario() -> tuple[str, str]:
+        app = WebSyncApp(config)
+        async with app.run_test(size=(160, 40)) as pilot:
+            await pilot.pause(0.4)
+            await pilot.press("question_mark")
+            await pilot.pause(0.3)
+            title = str(app.screen.query_one("#dialog-title", Static).content)
+            body = str(app.screen.query_one("#help-body", Static).content)
+            return title, body
+
+    title, body = asyncio.run(scenario())
+
+    assert "说明" in title
+    assert "推库（本机 → 网盘）" in body
+    assert str(sandbox.db_dir) in body
+    assert "没有单独命令" in body
+    assert "sqlite3 .backup" in body
+    assert "改名为 novel.db" in body
+
+
+def test_confirm_notes_when_staging_space_is_short(tmp_path) -> None:
+    source = tmp_path / "novel.db"
+    source.write_bytes(b"x" * 1024)
+
+    short = UploadConfirmScreen(source, "/", 512, "20260101000000-novel.db")._free_note(1024)
+    unknown = UploadConfirmScreen(source, "/", None, "20260101000000-novel.db")._free_note(1024)
+
+    assert "余量不足" in short
+    assert "未取到" in unknown
