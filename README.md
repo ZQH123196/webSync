@@ -42,7 +42,7 @@ WebSync 因此不挂在 WebUI 里，也不读 trans-app 的配置。
 只有两个命令，装完就启动：
 
 ```bash
-cd apps/supportProject/webSync
+cd WebSync             # 本仓库根目录
 ./install.sh            # 装 uv（缺才装）、Python 环境、kuake、goquark
 ./start_webSync.sh      # 进交互界面
 ```
