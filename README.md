@@ -4,6 +4,8 @@
 
 ## 为什么是独立工具
 
+本仓库是 trans-app 的配套工具，但它是独立仓库，可以单独 clone 与运行。
+
 trans-app 并不部署在所有机器上。有些机器只跑 sglang-omni，有些只跑 alignServer。
 WebSync 因此不挂在 WebUI 里，也不读 trans-app 的配置。
 它只需要三个外部可执行文件，任何一台机器都能单独跑。
@@ -42,9 +44,9 @@ WebSync 因此不挂在 WebUI 里，也不读 trans-app 的配置。
 只有两个命令，装完就启动：
 
 ```bash
-cd WebSync             # 本仓库根目录
-./install.sh            # 装 uv（缺才装）、Python 环境、kuake、goquark
-./start_webSync.sh      # 进交互界面
+cd websync           # 本仓库根目录，目录名随 clone 而定
+./install.sh         # 装 uv（缺才装）、Python 环境、kuake、goquark
+./start_webSync.sh   # 进交互界面
 ```
 
 `install.sh` 一条龙做完五件事：
